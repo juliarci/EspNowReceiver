@@ -20,7 +20,7 @@ long lastMsg = 0;
 #define MOTE_COUNT 2
 uint8_t moteAddress[MOTE_COUNT][6] = {
   {0xEC, 0x62, 0x60, 0x5A, 0x78, 0x4B},
-  {}
+  {0x08, 0xf9, 0xe0, 0x01, 0x0f, 0x64}
 };
 esp_now_peer_info_t peerInfo[MOTE_COUNT];
 
@@ -30,6 +30,7 @@ typedef struct struct_mote2sinkMessage {
   int readingId;
   int timeTag;
   float temperature, humidity, distance;
+  bool redLedState, yellowLedState;
   char text[64];
 } struct_mote2sinkMessage;
 
@@ -164,6 +165,8 @@ void loop() {
         char tempString[8];
         char humString[8];
         char distString[8];
+        char yellowLedState[8];
+        char redLedState[8];
 
         // Switch case on "BoardId"
         switch (espNow_lastMotesReadings[i].boardId) {
@@ -187,14 +190,13 @@ void loop() {
           dtostrf(espNow_lastMotesReadings[i].timeTag, 1, 2, lastUpdateString);
           client.publish("esp32/board1/lastUpdate", lastUpdateString);
 
-          dtostrf(espNow_lastMotesReadings[i].temperature, 1, 2, tempString);
-          client.publish("esp32/board1/temperature", tempString);
+          dtostrf(espNow_lastMotesReadings[i].yellowLedState, 1, 2, yellowLedState);
+          client.publish("esp32/board1/yellowLedState", yellowLedState);
+      Serial.println(espNow_lastMotesReadings[i].yellowLedState);
 
-          dtostrf(espNow_lastMotesReadings[i].humidity, 1, 2, humString);
-          client.publish("esp32/board1/humidity", humString);
-
-          dtostrf(espNow_lastMotesReadings[i].distance, 1, 2, distString);
-          client.publish("esp32/board0/distance", distString);
+          dtostrf(espNow_lastMotesReadings[i].redLedState, 1, 2, redLedState);
+          client.publish("esp32/board1/redLedState", redLedState);
+      Serial.println(espNow_lastMotesReadings[i].redLedState);
 
           espNow_lastMotesReadings[i] = {};
           break;
