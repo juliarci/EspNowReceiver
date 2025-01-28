@@ -15,6 +15,7 @@ const char* password = "iotisis;";
 const char* mqtt_server = "192.168.3.151";
 WiFiClient espClient;
 PubSubClient client(espClient);
+long lastMsg = 0;
 
 #define MOTE_COUNT 2
 uint8_t moteAddress[MOTE_COUNT][6] = {
@@ -28,7 +29,7 @@ typedef struct struct_mote2sinkMessage {
   int boardId;
   int readingId;
   int timeTag;
-  float temperature, humidity;
+  float temperature, humidity, distance;
   char text[64];
 } struct_mote2sinkMessage;
 
@@ -38,15 +39,30 @@ typedef struct struct_sink2moteMessage {
   char text[64];
 } struct_sink2moteMessage;
 
+struct_mote2sinkMessage espNow_incomingReadings;
 struct_mote2sinkMessage espNow_lastMotesReadings[MOTE_COUNT] = {};
 struct_sink2moteMessage espNow_outgoingMessage;
 
 // ESP-NOW callback for receiving data
 void espNowOnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
-  memcpy(&espNow_lastMotesReadings, incomingData, sizeof(struct_mote2sinkMessage));
-  Serial.printf("Data received from board %d\n", espNow_lastMotesReadings->boardId);
-  // Log data
-  Serial.printf("Reading ID: %d, TimeTag: %d\n", espNow_lastMotesReadings->readingId, espNow_lastMotesReadings->timeTag);
+  // Copies the sender MAC address to a string
+  char macStr[18];
+  snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
+           mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
+
+  Serial.print("Packet received from MAC = ");
+  Serial.print(macStr);
+  Serial.print(", length = ");
+  Serial.print(len);
+  Serial.println(" Bytes");
+  Serial.print(espNow_incomingReadings.boardId);
+  Serial.println(" Board Id");
+  
+  // Copy incoming data to the incomingReadings structure
+  memcpy(&espNow_incomingReadings, incomingData, sizeof(espNow_incomingReadings));
+
+  // Make a local copy of the last received board data
+  espNow_lastMotesReadings[espNow_incomingReadings.boardId] = espNow_incomingReadings;
 }
 
 // ESP-NOW callback for sending data
@@ -133,19 +149,60 @@ void setup() {
 
 // Main loop
 void loop() {
+  // MQTT reconnect when needed
   if (!client.connected()) {
     mqttReconnect();
   }
   client.loop();
 
-  // Publish ESP-NOW data to MQTT
-  for (int i = 0; i < MOTE_COUNT; i++) {
-    if (espNow_lastMotesReadings[i].timeTag != 0) {
-      char dataStr[32];
-      snprintf(dataStr, sizeof(dataStr), "%.2f", espNow_lastMotesReadings[i].temperature);
-      client.publish("esp32/mote/data", dataStr);
+  long now = millis();
+  if (now - lastMsg > 500) {
+    lastMsg = now;
+    for (size_t i = 0; i < MOTE_COUNT; i++) {
+      if (espNow_lastMotesReadings[i].timeTag != 0) {
+        char lastUpdateString[8];
+        char tempString[8];
+        char humString[8];
+        char distString[8];
+
+        // Switch case on "BoardId"
+        switch (espNow_lastMotesReadings[i].boardId) {
+        case 0:
+          dtostrf(espNow_lastMotesReadings[i].timeTag, 1, 2, lastUpdateString);
+          client.publish("esp32/board0/lastUpdate", lastUpdateString);
+
+          dtostrf(espNow_lastMotesReadings[i].temperature, 1, 2, tempString);
+          client.publish("esp32/board0/temperature", tempString);
+
+          dtostrf(espNow_lastMotesReadings[i].humidity, 1, 2, humString);
+          client.publish("esp32/board0/humidity", humString);
+          
+          dtostrf(espNow_lastMotesReadings[i].distance, 1, 2, distString);
+          client.publish("esp32/board0/distance", distString);
+
+          espNow_lastMotesReadings[i] = {};
+          break;
+
+        case 1:
+          dtostrf(espNow_lastMotesReadings[i].timeTag, 1, 2, lastUpdateString);
+          client.publish("esp32/board1/lastUpdate", lastUpdateString);
+
+          dtostrf(espNow_lastMotesReadings[i].temperature, 1, 2, tempString);
+          client.publish("esp32/board1/temperature", tempString);
+
+          dtostrf(espNow_lastMotesReadings[i].humidity, 1, 2, humString);
+          client.publish("esp32/board1/humidity", humString);
+
+          dtostrf(espNow_lastMotesReadings[i].distance, 1, 2, distString);
+          client.publish("esp32/board0/distance", distString);
+
+          espNow_lastMotesReadings[i] = {};
+          break;
+
+        default:
+          break;
+        }
+      }
     }
   }
-
-  delay(1000);
 }
